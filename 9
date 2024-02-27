@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract LendingPlatform {
+    struct Loan {
+        address borrower;
+        uint256 amount;
+        uint256 collateral;
+        uint256 interestRate;
+        uint256 duration;
+        uint256 startTime;
+        bool active;
+    }
+
+    mapping(address => uint256) public balances;
+    mapping(address => uint256) public collaterals;
+    mapping(address => Loan) public loans;
+    address public owner;
+    uint256 public totalLent;
+    uint256 public totalBorrowed;
+    uint256 public totalCollateralized;
+
+    event LoanRequested(address indexed borrower, uint256 amount);
+    event LoanRepaid(address indexed borrower, uint256 amount);
+    event CollateralAdded(address indexed borrower, uint256 amount);
+    event CollateralWithdrawn(address indexed borrower, uint256 amount);
+    event LoanLiquidated(address indexed borrower, uint256 amount);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function lend(uint256 _amount) external {
+        require(_amount > 0, "Amount must be greater than 0");
+        require(balances[msg.sender] >= _amount, "Insufficient balance");
+        balances[msg.sender] -= _amount;
+        totalLent += _amount;
+        emit LoanRequested(msg.sender, _amount);
+    }
+
+    function borrow(uint256 _amount, uint256 _collateral, uint256 _interestRate, uint256 _duration) external {
+        require(_amount > 0 && _collateral > 0, "Amount and collateral must be greater than 0");
+        require(collaterals[msg.sender] >= _collateral, "Insufficient collateral");
+        loans[msg.sender] = Loan(msg.sender, _amount, _collateral, _interestRate, _duration, block.timestamp, true);
+        totalBorrowed += _amount;
+        totalCollateralized += _collateral;
+        emit LoanRequested(msg.sender, _amount);
+    }
+
+    function repayLoan(address _borrower, uint256 _amount) external onlyOwner {
+        require(loans[_borrower].active, "No active loan for the borrower");
+        require(_amount > 0 && _amount <= balances[_borrower], "Invalid amount or insufficient balance");
+        balances[_borrower] -= _amount;
+        totalBorrowed -= _amount;
+        loans[_borrower].active = false;
+        emit LoanRepaid(_borrower, _amount);
+    }
+
+    function addCollateral(uint256 _amount) external {
+        require(_amount > 0 && _amount <= balances[msg.sender], "Invalid amount or insufficient balance");
+        balances[msg.sender] -= _amount;
+        collaterals[msg.sender] += _amount;
+        totalCollateralized += _amount;
+        emit CollateralAdded(msg.sender, _amount);
+    }
+
+    function withdrawCollateral(uint256 _amount) external {
+        require(_amount > 0 && _amount <= collaterals[msg.sender], "Invalid amount or insufficient collateral");
+        collaterals[msg.sender] -= _amount;
+        balances[msg.sender] += _amount;
+        totalCollateralized -= _amount;
+        emit CollateralWithdrawn(msg.sender, _amount);
+    }
+
+    function liquidateLoan(address _borrower) external onlyOwner {
+        require(loans[_borrower].active, "No active loan for the borrower");
+        require(block.timestamp >= loans[_borrower].startTime + loans[_borrower].duration, "Loan duration not expired");
+        uint256 liquidationAmount = loans[_borrower].amount + (loans[_borrower].amount * loans[_borrower].interestRate) / 100;
+        balances[msg.sender] += liquidationAmount;
+        totalBorrowed -= loans[_borrower].amount;
+        loans[_borrower].active = false;
+        emit LoanLiquidated(_borrower, liquidationAmount);
+    }
+}
